@@ -6,7 +6,7 @@ A Model Context Protocol (MCP) server for PostgreSQL database performance analys
 
 PostgreSQL Analyzer MCP is a powerful tool that leverages AI to help database administrators and developers optimize their PostgreSQL databases. It provides comprehensive analysis of database structure, query performance, index usage, and configuration settings, along with actionable recommendations for improvement.
 
-This tool runs as a remote MCP server using Streamable HTTP transport, allowing it to be deployed centrally and accessed by any MCP-compatible client, including Amazon Q Developer CLI, Claude and other AI assistants that support the MCP protocol.
+This tool runs as a remote MCP server using Streamable HTTP transport, allowing it to be deployed centrally and accessed by any MCP-compatible client, including AI assistants that support the MCP protocol.
 
 ## ⚠️ Disclaimer
 
@@ -26,6 +26,9 @@ This tool runs as a remote MCP server using Streamable HTTP transport, allowing 
 - **Database Health Dashboard**: Get a comprehensive overview of database health metrics
 - **Index Usage Analysis**: Identify unused, duplicate, or bloated indexes
 - **Read-Only Query Execution**: Safely execute read-only queries for verification
+- **Environment Configuration**: Flexible configuration via environment variables
+- **AWS Secrets Manager**: Secure credential management for production environments
+- **Local Database Support**: Connect to local PostgreSQL databases without AWS credentials
 
 ## Security
 
@@ -36,7 +39,7 @@ This tool operates in **read-only mode** by default. All database connections ar
 ### Prerequisites
 
 - Python 3.12+ (or Docker)
-- Amazon Aurora or RDS PostgreSQL database
+- PostgreSQL database
 - AWS account (for Secrets Manager, optional)
 
 ### Setup
@@ -44,59 +47,123 @@ This tool operates in **read-only mode** by default. All database connections ar
 #### Option 1: Local Setup
 
 1. Clone the repository:
+
    ```bash
    git clone https://github.com/yourusername/postgres-performance-mcp.git
    cd postgres-performance-mcp
    ```
 
 2. Create virtual environment and Install dependencies:
+
    ```bash
    python -m venv venv
-   source venv/bin/activate 
+   source venv/bin/activate
    pip install -r requirements.txt
+   ```
+
+3. Configure environment:
+
+   ```bash
+   # Copy environment template
+   cp env.example .env
+
+   # Edit with your database settings
+   nano .env
    ```
 
 #### Option 2: Docker Setup
 
 1. Clone the repository:
+
    ```bash
    git clone https://github.com/yourusername/postgres-performance-mcp.git
    cd postgres-performance-mcp
    ```
 
 2. Build the Docker image:
+
    ```bash
    docker build -t postgres-analyzer-mcp -f Dockerfile .
    ```
 
 3. Run the Docker container:
-   ```bash
-   docker run -p 8000:8000 postgres-analyzer-mcp
-   ```
 
-   For AWS credentials (if using Secrets Manager):
    ```bash
    docker run -p 8000:8000 \
-     -e AWS_ACCESS_KEY_ID=your_access_key \
-     -e AWS_SECRET_ACCESS_KEY=your_secret_key \
-     -e AWS_DEFAULT_REGION=your_region \
+     -e LOCAL_DB_HOST=your_host \
+     -e LOCAL_DB_PORT=5432 \
+     -e LOCAL_DB_NAME=your_db \
+     -e LOCAL_DB_USERNAME=your_user \
+     -e LOCAL_DB_PASSWORD=your_password \
      postgres-analyzer-mcp
    ```
 
-3. Configure your database credentials:
-   - Option 1: Store credentials in AWS Secrets Manager (recommended)
-   - Option 2: Provide credentials directly when using the tools
+## Configuration
+
+### Environment Variables
+
+The application uses environment variables for configuration. Copy `env.example` to `.env` and customize:
+
+```bash
+# Server Configuration
+MCP_HOST=0.0.0.0
+MCP_PORT=8000
+LOG_LEVEL=INFO
+
+# Local Database Configuration (NEW - for local development)
+LOCAL_DB_HOST=localhost
+LOCAL_DB_PORT=5432
+LOCAL_DB_NAME=postgres
+LOCAL_DB_USERNAME=postgres
+LOCAL_DB_PASSWORD=your_password
+
+# AWS Configuration (optional)
+AWS_DEFAULT_REGION=us-west-2
+PROD_DB_SECRET_NAME=prod-postgres-credentials
+```
+
+### Database Connection Methods
+
+The tool supports three ways to connect to databases:
+
+1. **Database Presets** (Recommended for local development):
+
+   ```bash
+   # Use 'local' preset for local database
+   analyze_database_structure(preset="local")
+   ```
+
+2. **Direct Credentials**:
+
+   ```bash
+   # Provide credentials directly
+   analyze_database_structure(
+       host="localhost",
+       port=5432,
+       dbname="mydb",
+       username="postgres",
+       password="password"
+   )
+   ```
+
+3. **AWS Secrets Manager** (for production):
+   ```bash
+   # Use AWS secrets
+   analyze_database_structure(secret_name="prod-db-credentials")
+   ```
 
 ## Usage
 
 ### Starting the Server
 
 #### Local:
+
 ```bash
 python src/main.py --host 0.0.0.0 --port 8000
 ```
 
 #### Docker:
+
 ```bash
 # The server starts automatically when running the container
 docker run -p 8000:8000 postgres-analyzer-mcp
@@ -116,7 +183,14 @@ Transport: Streamable HTTP
 Connect to the server using any MCP-compatible client and use the available tools:
 
 ```
-analyze_database_structure(secret_name="my-postgres-db-credentials", region_name="us-west-2")
+# Local database analysis (easiest)
+analyze_database_structure(preset="local")
+
+# Direct credentials
+analyze_database_structure(host="localhost", port=5432, dbname="mydb", username="postgres", password="password")
+
+# AWS Secrets Manager
+analyze_database_structure(secret_name="prod-db-credentials")
 ```
 
 ### Available Tools
@@ -126,28 +200,53 @@ analyze_database_structure(secret_name="my-postgres-db-credentials", region_name
 - `analyze_query`: Analyze a SQL query and provide optimization recommendations
 - `recommend_indexes`: Recommend indexes for a given SQL query
 - `suggest_query_rewrite`: Suggest optimized rewrites for a SQL query
-- `database_health_dashboard`: Generate a comprehensive health dashboard for the database
-- `query_optimization_wizard`: Interactive wizard to optimize a SQL query step by step
-- `analyze_index_usage`: Analyze index usage patterns and identify unused or inefficient indexes
 - `execute_read_only_query`: Execute a read-only SQL query and return the results
 - `show_postgresql_settings`: Show PostgreSQL configuration settings with optional filtering
 - `health_check`: Check if the server is running and responsive
 
-## Customization
+## Database Presets
 
-The real power of this tool comes from customizing it to your specific environment:
+The system provides several preconfigured database presets:
 
-- Add custom analysis rules tailored to your database usage patterns
-- Integrate with your monitoring systems
-- Customize recommendations based on your organization's best practices
-- Add domain-specific knowledge about your data model
-- Extend with additional tools specific to your needs
+- **`local`** - Local development database (uses LOCAL*DB*\* environment variables)
+- **`development`** - Development database (uses DEV*DB*\* environment variables)
+- **`production`** - Production database (uses AWS Secrets Manager)
+- **`staging`** - Staging database (uses AWS Secrets Manager)
+
+## Local Development Quick Start
+
+1. **Configure your local database**:
+
+   ```bash
+   cp env.example .env
+   # Edit .env with your local PostgreSQL credentials
+   ```
+
+2. **Start the MCP server**:
+
+   ```bash
+   python src/main.py
+   ```
+
+3. **Use the tools with local preset**:
+
+   ```bash
+   # Analyze your local database
+   analyze_database_structure(preset="local")
+
+   # Check for slow queries
+   get_slow_queries(preset="local")
+
+   # Analyze a specific query
+   analyze_query("SELECT * FROM users", preset="local")
+   ```
 
 ## AWS Secrets Manager Setup
 
 To use AWS Secrets Manager for storing database credentials:
 
 1. Create a secret in AWS Secrets Manager with the following keys:
+
    - `host`: Database hostname
    - `port`: Database port (usually 5432)
    - `dbname`: Database name
@@ -158,59 +257,8 @@ To use AWS Secrets Manager for storing database credentials:
 
 3. Use the secret name when calling the tools:
    ```
-   analyze_query(query="SELECT * FROM users WHERE user_id = 123", secret_name="my-postgres-db-credentials")
+   analyze_query(query="SELECT * FROM users WHERE user_id = 123", preset="production")
    ```
-
-## PostgreSQL Configuration
-
-For optimal performance analysis, we recommend enabling the following extensions:
-
-```sql
-CREATE EXTENSION pg_stat_statements;
-CREATE EXTENSION pg_buffercache;
-```
-
-And adding these settings to your `postgresql.conf`:
-
-```
-shared_preload_libraries = 'pg_stat_statements'
-pg_stat_statements.track = all
-```
-
-## Examples
-
-### Analyzing Database Structure
-
-```
-analyze_database_structure(secret_name="my-postgres-db-credentials")
-```
-
-### Analyzing a Query
-
-```
-analyze_query(
-    query="SELECT * FROM orders JOIN customers ON orders.customer_id = customers.id WHERE orders.status = 'pending'",
-    secret_name="my-postgres-db-credentials"
-)
-```
-
-### Getting Index Recommendations
-
-```
-recommend_indexes(
-    query="SELECT * FROM products WHERE category = 'electronics' AND price < 100",
-    secret_name="my-postgres-db-credentials"
-)
-```
-
-### Executing a Read-Only Query
-
-```
-execute_read_only_query(
-    query="SELECT schemaname, relname, n_live_tup FROM pg_stat_user_tables ORDER BY n_live_tup DESC LIMIT 10",
-    secret_name="my-postgres-db-credentials"
-)
-```
 
 ## Deploying to a Remote Server
 
@@ -226,6 +274,7 @@ To deploy the MCP server to a remote machine:
 4. Consider using a process manager like `docker-compose` or `systemd` to ensure the container restarts if the server reboots
 
 For secure access, consider setting up:
+
 - A reverse proxy with SSL/TLS (like Nginx or Traefik)
 - Authentication middleware
 - Firewall rules to restrict access
